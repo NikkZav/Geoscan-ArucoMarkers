@@ -63,9 +63,14 @@ if __name__ == "__main__":
         frame = camera.get_cv_frame()  # Get frame (already decoded)
         if frame is not None:
             # Auto contrast
-            alpha = 1.5  # Contrast control (1.0-3.0)
-            beta = 10  # Brightness control (0-100)
+            alpha = 2  # Contrast control (1.0-3.0)
+            beta = 30  # Brightness control (0-100)
             frame = cv.convertScaleAbs(frame, alpha=alpha, beta=beta)
+
+            # denoising of image saving it into dst image
+            frame = cv.fastNlMeansDenoisingColored(frame, None,
+                                                   10, 10, 7, 5)
+
             # Detect markers
             corners, ids, rejected = aruco_detector.detectMarkers(frame)
             if corners:
@@ -95,7 +100,6 @@ if __name__ == "__main__":
                 # overwrite the section of the background image that has been updated
                 frame[0:h, 0:w] = composite
 
-
                 # Find center of first aruco marker on screen
                 x_center = int(
                     (
@@ -118,11 +122,10 @@ if __name__ == "__main__":
                 dot_size = 5
                 # Draw red square in center of aruco marker
                 frame[
-                    y_center - dot_size : y_center + dot_size,
-                    x_center - dot_size : x_center + dot_size,
+                    y_center - dot_size: y_center + dot_size,
+                    x_center - dot_size: x_center + dot_size,
                 ] = [255, 0, 255]
                 # Draw markers
-
 
                 # Calculate pose for first detected marker
                 success, rvecs, tvecs = cv.solvePnP(
