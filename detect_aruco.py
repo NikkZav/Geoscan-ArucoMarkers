@@ -46,17 +46,26 @@ logo[:, :, 3] = 255
 
 if __name__ == "__main__":
     # Создание и полёт дрона
-    dron = Pioneer(ip='127.0.0.1', mavlink_port=8000)
+    dron = Pioneer(ip='127.0.0.1',
+                   mavlink_port=8000,
+                   logger=False,
+                   log_connection=False)
     dron.arm()
     dron.takeoff()
-    # dron.go_to_local_point(x=1, y=0, z=1, yaw=0)
-    dron.set_manual_speed_body_fixed(vx=0, vy=1, vz=0, yaw_rate=1)
+    dron.go_to_local_point(x=0, y=0, z=2, yaw=0)
+    # dron.set_manual_speed_body_fixed(vx=0, vy=1, vz=0, yaw_rate=1)
 
     # Connect to the drone camera
-    camera = Camera(ip='127.0.0.1', port=18000)
+    camera = Camera(ip='127.0.0.1',
+                    port=18000,
+                    log_connection=False)
     while True:
         frame = camera.get_cv_frame()  # Get frame (already decoded)
         if frame is not None:
+            # Auto contrast
+            alpha = 1.5  # Contrast control (1.0-3.0)
+            beta = 10  # Brightness control (0-100)
+            frame = cv.convertScaleAbs(frame, alpha=alpha, beta=beta)
             # Detect markers
             corners, ids, rejected = aruco_detector.detectMarkers(frame)
             if corners:
@@ -87,15 +96,59 @@ if __name__ == "__main__":
                 frame[0:h, 0:w] = composite
 
 
+                # Find center of first aruco marker on screen
+                x_center = int(
+                    (
+                        corners[0][0][0][0]
+                        + corners[0][0][1][0]
+                        + corners[0][0][2][0]
+                        + corners[0][0][3][0]
+                    )
+                    // 4
+                )
+                y_center = int(
+                    (
+                        corners[0][0][0][1]
+                        + corners[0][0][1][1]
+                        + corners[0][0][2][1]
+                        + corners[0][0][3][1]
+                    )
+                    // 4
+                )
+                dot_size = 5
+                # Draw red square in center of aruco marker
+                frame[
+                    y_center - dot_size : y_center + dot_size,
+                    x_center - dot_size : x_center + dot_size,
+                ] = [255, 0, 255]
+                # Draw markers
+
+
                 # Calculate pose for first detected marker
                 success, rvecs, tvecs = cv.solvePnP(
                     points_of_marker, corners[0], camera_matrix, dist_coeffs
                 )
                 coordinates = [tvecs.item(0), tvecs.item(1), tvecs.item(2)]
+
                 # Draw axes
                 cv.drawFrameAxes(frame, camera_matrix, dist_coeffs, rvecs, tvecs, 0.1)
 
+                yaw_rate = 0
+                # set a non-zero rotation speed if the center of the marker is on the side of the screen
+                if x_center < frame.shape[1] / 2:
+                    yaw_rate = -3
+                elif x_center > frame.shape[1] / 2:
+                    yaw_rate = 3
+                yaw_rate *= 0.005 + abs(x_center - frame.shape[1] / 2) / frame.shape[1] / 2
 
+                v_y = 0
+                if y_center < frame.shape[0] / 2:
+                    v_y = 3
+                elif y_center > frame.shape[0] / 2:
+                    v_y = -1
+                v_y *= 0.01 + abs(y_center - frame.shape[0] / 2) / frame.shape[0] / 2
+
+                dron.set_manual_speed_body_fixed(vx=0, vy=v_y, vz=0, yaw_rate=yaw_rate)
             else:
                 pass
 
