@@ -1,4 +1,5 @@
 import math
+import time
 
 import cv2 as cv
 import numpy as np
@@ -14,6 +15,13 @@ def load_coefficients(path):
 
     cv_file.release()
     return camera_matrix, dist_coeffs
+
+
+def tuning_image(frame):
+    alpha = 1.5  # Contrast control (1.0-3.0)
+    beta = 15  # Brightness control (0-100)
+    frame = cv.convertScaleAbs(frame, alpha=alpha, beta=beta)
+    return frame
 
 
 def get_centre_aruco(corners):
@@ -54,10 +62,11 @@ def search_aruco(dron, time_without_goal, corners_of_last_goal=None, waiting_tim
     time_without_goal += 1
     if time_without_goal > waiting_time:
         # Search new aruco
-        dron.set_manual_speed_body_fixed(vx=0, vy=0, vz=0, yaw_rate=0.3)
+        k = math.log10(time_without_goal + 10)
+        dron.set_manual_speed_body_fixed(vx=0.2*k, vy=0.3*k, vz=0, yaw_rate=-0.7/k)
     elif time_without_goal > waiting_time/10 and corners_of_last_goal is not None:
         # Search last aruco
-        go_to_aruco(dron, corners_of_last_goal, speed=1 / math.log10(time_without_goal + 10))
+        go_to_aruco(dron, corners_of_last_goal)
     return time_without_goal
 
 def go_to_aruco(dron, corners, speed=1., wide=640, high=480):
@@ -66,9 +75,9 @@ def go_to_aruco(dron, corners, speed=1., wide=640, high=480):
     yaw_rate = 0
     # set a non-zero rotation speed if the center of the marker is on the side of the screen
     if x_center < wide / 2:
-        yaw_rate = -3
+        yaw_rate = -1
     elif x_center > wide / 2:
-        yaw_rate = 3
+        yaw_rate = 1
     yaw_rate *= 0.005 + abs(x_center - wide / 2) / frame.shape[1] / 2
 
     v_y = 0
@@ -136,16 +145,15 @@ if __name__ == "__main__":
         frame = camera.get_cv_frame()  # Get frame (already decoded)
         if frame is not None:
             # Auto contrast
-            alpha = 1.8 # Contrast control (1.0-3.0)
-            beta = 20  # Brightness control (0-100)
-            frame = cv.convertScaleAbs(frame, alpha=alpha, beta=beta)
+            frame = tuning_image(frame)
 
             # denoising of image saving it into dst image
-            frame = cv.fastNlMeansDenoisingColored(frame, None,
-                                                   10, 10, 7, 5)
+            # frame = cv.fastNlMeansDenoisingColored(frame, None,
+            #                                        10, 10, 7, 10)
+            frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
 
             # Detect markers
-            corners, ids, rejected = aruco_detector.detectMarkers(frame)
+            corners, ids, rejected = aruco_detector.detectMarkers(frame_gray)
             if corners:
                 cv.aruco.drawDetectedMarkers(frame, corners, ids)
                 ids, corners = zip(*sorted(zip(ids, corners), key=lambda x: x[0]))
@@ -210,12 +218,21 @@ if __name__ == "__main__":
                     # Draw axes
                     cv.drawFrameAxes(frame, camera_matrix, dist_coeffs, rvecs, tvecs, 0.1)
 
-                    if get_dist(corners_of_goal) <= 50:
+                    if get_dist(corners_of_goal) <= 30:
                         print(f'Success! visited aruco with the id {goal_id}')
                         visited_aruco_ids.add(goal_id)
                         goal_id = goal_index = None
+                        start = time.time()
+                        while time.time() - start < 2:
+                            dron.set_manual_speed(vx=0, vy=1, vz=0, yaw_rate=0)
+                            circle_frame = frame = tuning_image(camera.get_cv_frame())
+                            cv.imshow("video", circle_frame)
+                            if cv.waitKey(1) == 27:  # Exit if the ESC key is pressed
+                                break
+                        dron.set_manual_speed(vx=0, vy=-1, vz=0, yaw_rate=0)
+                        print(f'Coord visited aruco {dron.get_local_position_lps()}')
                     else:
-                        go_to_aruco(dron, corners_of_goal)
+                        go_to_aruco(dron, corners_of_goal, speed=1.5)
                 else:
                     time_without_goal = search_aruco(dron, time_without_goal, corners_of_goal)
             else:
