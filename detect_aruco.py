@@ -18,9 +18,28 @@ def load_coefficients(path):
 
 
 def tuning_image(frame):
+    # Определяем гамму
+    gamma = 1.1
+    # Преобразуем изображение в формат float
+    frame = frame.astype(np.float32) / 255.0
+    # Применяем гамму
+    frame = np.power(frame, 1/gamma)
+    # Преобразуем обратно в формат uint8
+    frame = (frame * 255).astype(np.uint8)
+
+    # Извлекаем красный канал (индекс 2)
+    frame = frame[:, :, 2]
+
+    # denoising of image saving it into dst image
+    # frame = cv.fastNlMeansDenoising(frame,
+    #                                 h=8, templateWindowSize=3, searchWindowSize=9)
+
+    frame = cv.cvtColor(frame, cv.COLOR_GRAY2RGB)
+
     alpha = 1.5  # Contrast control (1.0-3.0)
-    beta = 15  # Brightness control (0-100)
+    beta = 0  # Brightness control (0-100)
     frame = cv.convertScaleAbs(frame, alpha=alpha, beta=beta)
+
     return frame
 
 
@@ -144,16 +163,9 @@ if __name__ == "__main__":
     while True:
         frame = camera.get_cv_frame()  # Get frame (already decoded)
         if frame is not None:
-            # Auto contrast
-            frame = tuning_image(frame)
-
-            # denoising of image saving it into dst image
-            # frame = cv.fastNlMeansDenoisingColored(frame, None,
-            #                                        10, 10, 7, 10)
-            frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-
             # Detect markers
-            corners, ids, rejected = aruco_detector.detectMarkers(frame_gray)
+            corners, ids, rejected = aruco_detector.detectMarkers(
+                tuning_image(frame))
             if corners:
                 cv.aruco.drawDetectedMarkers(frame, corners, ids)
                 ids, corners = zip(*sorted(zip(ids, corners), key=lambda x: x[0]))
@@ -218,18 +230,18 @@ if __name__ == "__main__":
                     # Draw axes
                     cv.drawFrameAxes(frame, camera_matrix, dist_coeffs, rvecs, tvecs, 0.1)
 
-                    if get_dist(corners_of_goal) <= 30:
+                    if get_dist(corners_of_goal) <= 20:
                         print(f'Success! visited aruco with the id {goal_id}')
                         visited_aruco_ids.add(goal_id)
                         goal_id = goal_index = None
                         start = time.time()
-                        while time.time() - start < 2:
+                        while time.time() - start < 2.2:
                             dron.set_manual_speed(vx=0, vy=1, vz=0, yaw_rate=0)
-                            circle_frame = frame = tuning_image(camera.get_cv_frame())
-                            cv.imshow("video", circle_frame)
+                            frame = tuning_image(camera.get_cv_frame())
+                            cv.imshow("video", frame)
                             if cv.waitKey(1) == 27:  # Exit if the ESC key is pressed
                                 break
-                        dron.set_manual_speed(vx=0, vy=-1, vz=0, yaw_rate=0)
+                        dron.set_manual_speed(vx=0, vy=-1.2, vz=0, yaw_rate=0)
                         print(f'Coord visited aruco {dron.get_local_position_lps()}')
                     else:
                         go_to_aruco(dron, corners_of_goal, speed=1.5)
